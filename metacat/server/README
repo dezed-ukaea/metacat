@@ -3,7 +3,7 @@
 
 
 run metacat in comntainer
-docker-compose up
+docker-compose up --build
 
 
 run metacat standalone with scicatlive

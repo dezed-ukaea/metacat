@@ -1,11 +1,6 @@
-sudo docker build --tag python-docker .
+Run the server in a docker container. See server/README
 
-sudo docker run --add-host host.docker.internal:host-gateway -p 5000:5000 python-docker
-
-docker-compose up --build
-
-run mongo shell
-docker exec -it <container id> mongosh
+Run the client. See the client README
 
 
 
