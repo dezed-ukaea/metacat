@@ -1,0 +1,25 @@
+
+
+
+
+run metacat in comntainer
+docker-compose up
+
+
+run metacat standalone with scicatlive
+SCICAT_HOST=http://localhost MONGODB_HOST=localhost python main.py 
+ 
+
+
+
+
+Some example endpoints
+http://localhost:5000/schema/s1
+http://localhost:5000/schemas?filter={"name":+"s1"}
+
+
+http://localhost:5000/datasets?filter={"pid":+"PID.SAMPLE.PREFIX/f61f201b-b587-4e0a-ae26-c5b0b1d0a918"}
+
+
+container mongodb shell
+sudo docker exec -it example-mongo mongosh
