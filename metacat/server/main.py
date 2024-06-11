@@ -2,6 +2,12 @@ import ast
 import os
 import json
 import jsonschema
+import functools
+
+#import pydantic
+#from typing import List, Optional
+#from typing_extensions import Annotated
+#from pydantic import BaseModel, Field, BeforeValidator
 
 from flask import Flask
 import flask
@@ -12,21 +18,20 @@ from pymongo import MongoClient
 import bson
 from bson.objectid import ObjectId
 
+from flask_oidc import OpenIDConnect
+
+
 import pyscicat.client
 import pyscicat.model
 
 MONGODB_HOST=os.getenv( "MONGODB_HOST", default='mongodb')
 SCICAT_HOST=os.getenv( "SCICAT_HOST", default='http://catamel:3000')
 
-#print(MONGODB_HOST)
-#print(SCICAT_HOST)
-
 
 USER_DBNAME='users'
 
 SCICAT_INGESTOR='ingestor'
 SCICAT_PASSWD='aman'
-
 
 class DBConn:
 
@@ -52,17 +57,40 @@ class DBConn:
         schema_group.drop()
 
 
-    def schema_get( self, name ):
+    def schemainfo_get( self, name ):
         db = self.conn[ USER_DBNAME ]
         collection = db['schemas']
         o = collection.find_one( {'name':name} )
 
-        schema = o['schema'] if o else None
+        return o
 
+    def schemainfo_add( self, name, schema, users=None, groups=None ):
 
-        return schema
+        db = self.conn[ USER_DBNAME ]
 
-    def schema_add( self, name, schema ):
+        users = list(users) if users is not None else []
+        groups = list(groups) if groups is not None else []
+
+        collection = db['schemas']
+
+        existing = collection.find_one( {'name' : name } )
+
+        if not existing:
+            j = {}
+            j['name'] = name
+            j['schema'] = schema
+
+            j_auth = {}
+            j_auth['users'] = users
+            j_auth['groups'] = groups
+
+            j['auth'] = j_auth
+
+            id_ = collection.insert_one( j ).inserted_id
+
+            return id_
+
+    def schemainfo_update( self, name, schema=None, users=None, groups=None ):
 
         db = self.conn[ USER_DBNAME ]
 
@@ -71,94 +99,172 @@ class DBConn:
         existing = collection.find_one( {'name' : name } )
 
         if not existing:
-            id_ = collection.insert_one( {'name':name, 'schema':schema} ).inserted_id
-            return id_
+            j = {}
+            j['name'] = name
+            j['schema'] = schema
+
+            j_auth = {}
+            j_auth['users'] = []
+            j_auth['groups'] = []
+
+            j['auth'] = j_auth
+
+            id_ = collection.insert_one( j ).inserted_id
+
+        if schema:
+            collection.update_one(
+                {'name':name },
+                { '$set' : {'schema':schema}}
+            )
+
+        if users:
+            for user in users:
+                if user not in existing['auth']['users']:
+                    collection.update_one(
+                        {'name':name },
+                        {'$push':{'auth.users' : user} }
+                    )
+
+        if groups:
+            for group in groups:
+                if group not in existing['auth']['groups']:
+                    collection.update_one(
+                        {'name':name },
+                        {'$push':{'auth.groups' : group} }
+                    )
 
 
-    def schema_add_user_auth( self, schema_name, user_name ):
+        s = self.schemainfo_get( name )
+        return s
 
-        db = self.conn[USER_DBNAME]
+    def schemainfo_delete( self, name, schema=None, users=None, groups=None ):
 
-        collection = db['schema_user']
+        db = self.conn[ USER_DBNAME ]
 
-        s_collection = db['schemas']
-        u_collection = db['users']
+        collection = db['schemas']
 
-        s = s_collection.find_one( {'name':schema_name} )
-        u = u_collection.find_one({'name':user_name})
+        existing = collection.find_one( {'name' : name } )
 
-        collection.insert_one( {'schema_id':ObjectId(s['_id']), 'user_id':ObjectId(u['_id']) } )
+        if not existing:
+            return {'error' : 'schema not found' }
 
+        if not schema and not users and not groups:
+            #delete the schema completely
+            collection.delete_one( {'name' : name} )
+            return None
+        else:
 
-    def schema_add_group_auth( self, schema_name : str, names ):
+            if schema is not None:
+                collection.update_one(
+                    {'name':name },
+                    { '$set' : {'schema':schema}}
+                )
 
-        db = self.conn[USER_DBNAME]
-        collection = db['schema_group']
+            if users is not None:
+                for user in users:
+                    if user in existing['auth']['users']:
+                        collection.update_one(
+                            {'name':name },
+                            {'$pull':{'auth.users' : user} }
+                        )
 
-        s_collection = db['schemas']
-        g_collection = db['groups']
-
-        s = s_collection.find_one( {'name':schema_name} )
-        #g = g_collection.find_one({'name':group_name})
-
-        query = { 'name' : { '$in':names}}
-        gs = g_collection.find( query )
-
-        for g in gs:
-            collection.insert_one( {'schema_id':ObjectId(s['_id']), 'group_id':ObjectId(g['_id']) } )
-
-    def user_group_add( self, user : str, groups ):
-
-        db = self.conn[USER_DBNAME]
-
-        group_collection = db['groups']
-        user_collection = db['users']
-        user_group_collection = db['user_group']
-
-        u = user_collection.find_one( {'name': user} )
-        u_id = u['_id'] 
-
-        user_group_collection.delete_many( {'userid' : ObjectId(u_id) } )
-
-        query = {'name' : {'$in' : groups }}
-        gs = group_collection.find( query )
-
-        for g in gs:
-            g_id = g['_id']
-            user_group_collection.insert_one( {'userid': ObjectId(u_id)
-                                               , 'groupid' : ObjectId( g_id) } ) 
+            if groups is not None:
+                for group in groups:
+                    if group in existing['auth']['groups']:
+                        collection.update_one(
+                            {'name':name },
+                            {'$pull':{'auth.groups' : group} }
+                        )
 
 
-    def users_create( self, names ):
+        return 
+
+
+    def userinfo_create( self, name, groups=None, roles=None ):
         db = self.conn[ 'users']
 
         u_collection = db['users']
 
-        j_users = [ {'name' : name} for name in names ]
+        groups = list(groups) if groups is not None else []
+        roles = list(roles) if roles is not None else []
 
-        status = u_collection.insert_many(  j_users )
+        j_user =  {'name' : name
+                     , 'groups':groups
+                     , 'roles':roles
+                    }
 
-    def groups_create( self, groups ):
+        status = u_collection.insert_one(  j_user )
+
+    def userinfo_get( self, name ):
+        db = self.conn[ 'users']
+
+        u_collection = db['users']
+
+        u = u_collection.find_one( {'name':name} )
+
+        return u
+
+    def userinfo_update( self, name, groups=None, roles=None):
+        groups = list(groups) if groups is not None else []
+        roles = list(roles) if roles is not None else []
+
+        u = self.userinfo_get( name )
 
         db = self.conn[ 'users']
-        g_collection = db['groups']
 
-        js = [ {'name' : name} for name in groups ]
+        collection = db['users']
 
-        g_collection.insert_many( js )
+        for group in groups:
+            if group not in u['groups']:
+                collection.update_one( {'name' : name}, 
+                                      {'$push' : { 'groups' :group} } )
+
+        for role in roles:
+            if role not in u['roles']:
+                collection.update_one( {'name' : name},
+                                      {'$push' : { 'roles' :role} })
+
+        u = self.userinfo_get( name )
+
+        return u
+
+    def userinfo_delete( self, name, groups=None, roles=None):
+        groups = list(groups) if groups is not None else []
+        roles = list(roles) if roles is not None else []
+
+        u = self.userinfo_get( name )
+
+        db = self.conn[ 'users']
+
+        collection = db['users']
+
+        for group in groups:
+            if group in u['groups']:
+                collection.update_one( {'name' : name}, 
+                                      {'$pull' : { 'groups' :group} } )
+
+        for role in roles:
+            if role in u['roles']:
+                collection.update_one( {'name' : name},
+                                      {'$pull' : { 'roles' :role} })
+
+        u = self.userinfo_get( name )
+
+        return u
+
+
 
 
 
 
 DB = DBConn()
 
-DB.users_create( [ 'rob', 'sally', 'fred' ] )
-
-DB.groups_create( ['g1','g2','g3'] )
+for name in [ 'rob', 'sally', 'fred' ]:
+    DB.userinfo_create( name )
 
 s1={ 'type' : 'object' 
-    , 'properties' :   { 'a' : {'type':'string'}}
-    , 'required' : ['a']}
+    , 'properties' :   { 'field1' : {'type':'string'}}
+    , 'required' : ['field1']}
 
 any_={}
 s3={}
@@ -168,56 +274,204 @@ bad={ 'type' : 'object'
     , 'properties' :   { 'a' : {'type':'string'}}
     , 'required' : ['a']}
 
+invalid={'minItems' : '1'}
 
-DB.schema_add( 's1', s1 )
-DB.schema_add( 'any', any_ )
-id_s3 = DB.schema_add( 's3', s3 )
-#print('S3', id_s3, flush=True)
-DB.schema_add( 'bad', bad )
 
-DB.user_group_add( 'rob', ['g1'] )
-DB.user_group_add( 'fred', ['g1', 'g2'] )
+DB.schemainfo_add( 'invalid', invalid, users=['test'] )
+DB.schemainfo_add( 's1', s1, users=['rob'], groups=['g1'] )
+DB.schemainfo_add( 'any', any_, groups=['g2'])
+id_s3 = DB.schemainfo_add( 's3', s3, users=['rob'], groups=['g2','g3'] )
 
-DB.schema_add_user_auth( 's3', 'rob' )
+DB.schemainfo_add( 'bad', bad )
 
-DB.schema_add_group_auth( 's1', ['g1'] )
-DB.schema_add_group_auth( 'any', ['g2'] )
-DB.schema_add_group_auth( 's3', ['g2', 'g3'] )
+DB.userinfo_update( 'rob', groups=['g1'] )
+DB.userinfo_update( 'fred', groups=['g1', 'g2'] )
+
+DB.userinfo_create( 'test', roles=['schema'] )
+
+
+
+
+
+
+
+
+from flask_oidc import OpenIDConnect
+import flask
+from flask import Flask, g
+from pkg_resources import resource_filename
+import json
+
+#needed for token auth
+from authlib.integrations.flask_oauth2 import current_token
+
+
 
 app = Flask(__name__)
 
-_ = DB.schema_get( 's3' )
-#print('s3 schema', _ )
 
-@app.route("/")
+app.config["SECRET_KEY"] = "abcdabcd"
+app.config["DEBUG"] = True
+app.config["TESTING"] = True
+
+#app.config["OIDC_CLIENT_SECRETS"] = resource_filename(__name__, 'client_secrets_ukaea.json')
+#app.config["OIDC_CLIENT_SECRETS"] = resource_filename(__name__, 'client_secrets_local.json')
+app.config["OIDC_CLIENT_SECRETS"] = resource_filename(__name__, 'client_secrets.json')
+
+app.config["OIDC_ID_TOKEN_COOKIE_SECURE"] = False
+app.config["OIDC_ID_REQUIRE_VERIFIED_EMAIL"] = False
+app.config["OIDC_RESOURCE_SERVER_ONLY"] = True
+
+#app.config['OIDC_INTROSPECTION_AUTH_METHOD']='bearer'
+
+
+oidc = OpenIDConnect(app)
+
+def metacat_user_has_role(username : str,  role : str ):
+    ret = False
+    u = DB.userinfo_get(username)
+
+    if u:
+        roles = u.get('roles', [])
+        ret = role in roles
+
+    return ret
+
+
+
+def metacat_require_role(role : str):
+
+    def decorator(func):
+
+        @functools.wraps(func)
+        def inner(*args, **kwargs):
+
+            username = current_token['username']
+
+            has_role = metacat_user_has_role( username, role )
+
+            if has_role:
+                return func(*args, **kwargs)
+            else:
+                #print('')
+                #print('FAILED')
+                return {'error' : f'User {username} does not have metacat {role} role'} 
+
+        return inner
+
+    return decorator
+
+
+def oidc_user_has_role( role ):
+    #username = current_token['username']
+    client_id = current_token[ 'client_id' ]
+    resource_access = current_token.get( 'resource_access', {})
+    client_access = resource_access.get( client_id, {} )
+    client_roles = client_access.get( 'roles', [])
+
+    return role in client_roles
+
+
+
+def oidc_require_role(role):
+
+    def decorator(f):
+
+        @functools.wraps(f)
+        def inner(*args, **kwargs ):
+
+            has_role = oidc_user_has_role( role )
+
+            if has_role:
+                return f(*args, **kwargs)
+            else:
+                username = current_token['username']
+                return {'error' : f'user "{username}" does not have "{role}" role'}
+
+        return inner
+
+    return decorator
+
+
+
+
+#_ = DB.schemainfo_get( 's3' )
+
+@app.route("/api/v1")
+
 def index():
     j = {}
 
     return flask.jsonify( j )
 
-@app.route('/user/<name>', methods=['GET'])
-def user(name):
-    j={}
+@app.route('/api/v1/user/<name>', methods=['GET'])
+@oidc.accept_token()
+def user_get_route(name):
     db = DB.conn[ USER_DBNAME]
     u_collection = db['users']
 
-    u = u_collection.find_one( {'name':name}, { '_id' : 0} )
+    u = DB.userinfo_get( name )
 
     if not u:
         flask.abort(404)
 
-    j = u
+    del u['_id']
 
-    return flask.jsonify( j )
+    return flask.jsonify( u )
+
+@app.route('/api/v1/user/<name>', methods=['POST'])
+@oidc.accept_token()
+@oidc_require_role( 'admin' )
+def user_update_route(name):
+
+    u = DB.userinfo_get( name )
+
+    if not u:
+        DB.users_create( [name] )
+
+    data = flask.request.get_json()
+
+    roles = data.get('roles', [] )
+    groups = data.get('groups', [] )
+    
+    u = DB.userinfo_update( name, groups=groups, roles=roles)
+
+    del u['_id']
+
+    return flask.jsonify( u )
+
+@app.route('/api/v1/user/<name>', methods=['DELETE'])
+@oidc.accept_token()
+@oidc_require_role( 'admin' )
+def user_delete_route(name):
+
+    data = flask.request.get_json()
+
+    if 'roles' not in data and 'groups' not in data:
+        DB.user_delete( name )
+        return flask.jsonify( {} )
+    else:
+        u = DB.userinfo_get( name )
+
+        if not u:
+            return {'error' : 'user not found'}
+
+        #data = flask.request.get_json()
+
+        roles = data.get('roles', None )
+        groups = data.get('groups', None )
+
+        u = DB.userinfo_delete( name, roles=roles, groups=groups )
+
+        #u = DB.userinfo_get( name )
+        del u['_id']
+
+        return flask.jsonify( u )
 
 
 
-
-
-
-
-
-@app.route( '/schemas', methods=['GET'] )
+@app.route( '/api/v1/schemas', methods=['GET'] )
+@oidc.accept_token()
 def schemas_find():
     #the filter may need adjusting to meet scicat schema requirements
     try:
@@ -238,118 +492,102 @@ def schemas_find():
         return flask.jsonify( {'error' : 'db error : %s' % e} )
 
 
+def get_current_username():
+    username = current_token['username']
+    return username
 
 
-@app.route('/schema/<name>', methods=['GET', 'POST'])
-def fschema(name):
+@app.route('/api/v1/schema/<name>', methods=[ 'POST'])
+@oidc.accept_token()
+@metacat_require_role( 'schema' )
+def schema_route_post(name):
 
+    #create a new schema
     if flask.request.method =='POST':
 
-            data = flask.request.get_json()
-            #can user write with this schema
+        #is the user a schema administrator?
+        username = get_current_username()
 
-            schema = DB.schema_get( name )
+        data = flask.request.get_json()
 
-            #print('schema', schema )
+        schema = data.get('schema', None)
+        users = data.get('users', [] )
+        groups=data.get('groups', [] )
 
-            if schema:
-                return flask.jsonify( {'error': 'schema exists'}), 409 #conflict
-            else:
-                id_ = DB.schema_add( name, data )
+        si = DB.schemainfo_update( name, schema=schema, users=users, groups=groups )
 
-                result = {}
+        del si['_id']
 
-                if( id_ ):
-                    result['id'] = str(id_)
-                else:
-                    result['error'] = 'Failed to insert schema'
+        return flask.jsonify( si )
 
-                return flask.jsonify( result )
+@app.route('/api/v1/schema/<name>', methods=['GET'])
+@oidc.accept_token()
+def schema_route_get(name):
 
     if flask.request.method == 'GET':
 
-        j = {}
-
         try:
 
-            j = DB.schema_get( name )
+            si = DB.schemainfo_get( name )
+            del si['_id']
+
+            return flask.jsonify( si )
 
         except KeyError:
             flask.abort(404)#Not found
-            #print('XXXXXXXXXXX', flush=True)
         except Exception as e:
             #print(e, flush=True)
             flask.abort(400)
             
-        return flask.jsonify( j )
 
 
-@app.route('/schema/<name>/auth', methods=['GET'])
-def schema_auth(name):
-    
-    #if not name:
-    #    flask.abort(400)
+@app.route('/api/v1/schema/<name>', methods=['DELETE'])
+@oidc.accept_token()
+def schema_route_delete(name):
 
-    if request.method == 'GET':
+    j = {}
 
-        j = {}
+    data = flask.request.get_json()
 
-        try:
+    schema = data.get('schema', None)
+    users = data.get('users', None )
+    groups=data.get('groups', None )
 
-            db = DB.conn[ USER_DBNAME]
-            s_collection = db['schemas']
-            u_collection = db['users']
+    DB.schemainfo_delete( name, schema=schema, users=users, groups=groups )
 
-            s = s_collection.find_one( {'name':name} )
-
-            s_g_collection = db['schema_group']
-
-            gs = s_g_collection.find({'schema_id': ObjectId( s['_id'] ) } )
-            g_collection = db['groups']
-            
-            j['groups'] = []
-
-            for g in gs:
-                g_ = g_collection.find_one( {'_id' : ObjectId(g['group_id'] )})
-                j['groups'].append( g_['name'] )
-
-            s_u_collection = db[ 'schema_user' ]
-
-            j['users'] = []
-
-            uss = s_u_collection.find( {'schema_id': ObjectId( s['_id']) } )
-
-            for u_s in uss:
-
-                u_id = u_s['user_id']
-                u = u_collection.find_one( {'_id' : ObjectId( u_id ) }, {'_id':0}  )
-
-                j['users'].append( u['name'] )
+    return flask.jsonify( j )
 
 
-        except KeyError:
-            flask.abort(404)#Not found
-        except Exception as e:
-            flask.abort(400)
-            
-        return flask.jsonify( j )
-
-@app.route( '/dataset', methods=['POST'] )
+@app.route( '/api/v1/dataset', methods=['POST'] )
+@oidc.accept_token()
 def create_dataset():
 
     args = flask.request.args
 
     data = flask.request.get_json()
 
+    username = current_token['username' ]
+
     try:
+
         schema_name = args['schema']
-        
+
+        username = current_token['username']
+
         #can user write with this schema
 
-        schema = DB.schema_get( schema_name )
+        schema_info = DB.schemainfo_get( schema_name )
+
+        if schema_info is None:
+            return flask.jsonify( {'error' : 'schema "%s" does not exist' % schema_name} )
+
+        schema=schema_info['schema']
 
         if schema is None:
             return flask.jsonify( {'error' : 'schema "%s" does not exist' % schema_name} )
+
+        if username not in schema_info['auth']['users']:
+            return flask.jsonify( {'error' : 'user not authorised for schema'} )
 
         #does data match this schema
         jsonschema.validate( data, schema=schema )
@@ -375,7 +613,8 @@ def create_dataset():
 
         return flask.jsonify( {'pid' : ds_id} ), 200
 
-@app.route( '/dataset/<prefix>/<pid>' )
+@app.route( '/api/v1/dataset/<prefix>/<pid>' )
+@oidc.accept_token()
 def dataset_get( prefix, pid ):
 
     metadata_pid = urllib.parse.unquote_plus( pid )
@@ -396,7 +635,8 @@ def dataset_get( prefix, pid ):
     return flask.jsonify( ds )
 
 
-@app.route( '/datasets', methods=['GET'])
+@app.route( '/api/v1/datasets', methods=['GET'])
+@oidc.accept_token()
 def datasets_find( ):
 
     #the filter may need adjusting to meet scicat schema requirements
@@ -406,10 +646,6 @@ def datasets_find( ):
         scicat_filter = json.loads( filter_ )
     except:
         scicat_filter = None
-
-    #skip=flask.requests.args.get('skip', 0)
-
-    #limit = flask.requests.args.get( 'limit', 0)
 
 
     scicat_user=SCICAT_INGESTOR
@@ -434,6 +670,38 @@ def datasets_find( ):
         s = ast.literal_eval(s)
 
         return flask.jsonify(s)
+
+@app.route('/protected', methods=['GET'])
+@oidc.accept_token()
+def protected_route():
+    #print('START')
+    #print(oidc.user_loggedin)
+    #print( current_token )
+    #print( dir(current_token) )
+    #print(type(current_token ))
+
+    #oidc.ensure_active_token( current_token )
+    #headers = dict(flask.request.headers)
+    #print(headers)
+    #auth_header = headers.get( 'Authorization')
+    #print(auth_header)
+    #if auth_header is None:
+    #    return flask.jsonify(message="Missing Authorization Header"), 401
+
+
+    #KEYCLOAK_URL='http://f7339.local:8180/realms/realm1/protocol/openid-connect/userinfo'
+    #token = auth_header.split(' ')[1]
+    #response = requests.get(KEYCLOAK_URL, headers={'Authorization': f'Bearer {token}'})
+    #print(response)
+    #if response.status_code != 200:
+    #    return flask.jsonify(message="Invalid Token"), 401
+
+
+    s = json.dumps(f'Welcome {current_token}')
+
+    #print(s, flush=True)
+
+    return s
 
 
 

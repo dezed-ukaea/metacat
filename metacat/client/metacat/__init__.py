@@ -1,10 +1,19 @@
 import requests
+from requests_oauthlib import OAuth2Session
+from oauthlib.oauth2 import TokenExpiredError
+
 #import datetime
 import json
 from urllib.parse import urljoin, quote_plus, quote
 import pydantic
 from typing import Optional, List, Dict
 import enum
+
+import os
+
+import os
+os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
+os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
 class MetaCatException( Exception ):
     pass
@@ -97,21 +106,105 @@ class DerivedDataset(Dataset):
 
 
 class Client:
-    def __init__(self, base_url : str ):
+    def __init__(self, base_url : str):
 
         if not base_url.endswith( '/' ):
             base_url += '/'
 
         self.base_url = base_url
 
+        if not base_url.endswith( '/' ):
+            base_url += '/'
 
-    def schema_get( self, schema_name ):
+    def _get(self, *args, **kwargs ):
+        return requests.get( *args, **kwargs )
 
-        endpoint=urljoin( 'schema/', schema_name )
+    def _post( self, *args, **kwargs ):
+        return requests.post( *args, **kwargs )
+
+    def _delete( self, *args, **kwargs ):
+        return requests.delete( *args, **kwargs )
+
+    def userinfo_get(self, username):
+        
+        endpoint=urljoin( ' /api/v1/user/', username )
 
         url = urljoin( self.base_url, endpoint )
 
-        r = requests.get( url=url )
+        r = self._get( url=url )
+
+        if not r.ok:
+            raise MetaCatException( f'error in operation : {r}' )
+
+        if r.ok:
+            j = r.json()
+
+            if 'error' in j:
+                raise MetaCatException( j['error'] )
+
+            return j
+
+    def userinfo_update(self, username, groups = None, roles=None):
+        
+        endpoint=urljoin( ' /api/v1/user/', username )
+
+        url = urljoin( self.base_url, endpoint )
+
+        data = {}
+
+        if roles is not None:
+            data['roles'] = roles
+
+        if groups is not None:
+            data['groups'] = groups
+
+        r = self._post( url=url, json=data )
+
+        if not r.ok:
+            raise MetaCatException( f'error in operation : {r}' )
+
+        if r.ok:
+            j = r.json()
+
+            if 'error' in j:
+                raise MetaCatException( j['error'] )
+
+            return j
+
+    def userinfo_delete(self, username, groups = None, roles=None):
+        
+        endpoint=urljoin( ' /api/v1/user/', username )
+
+        url = urljoin( self.base_url, endpoint )
+
+        data = {}
+
+        if roles is not None:
+            data['roles'] = roles
+
+        if groups is not None:
+            data['groups'] = groups
+
+        r = self._delete( url=url, json=data )
+
+        if not r.ok:
+            raise MetaCatException( f'error in operation : {r}' )
+
+        if r.ok:
+            j = r.json()
+
+            if 'error' in j:
+                raise MetaCatException( j['error'] )
+
+            return j
+
+    def schemainfo_get( self, schema_name ):
+
+        endpoint=urljoin( 'api/v1/schema/', schema_name )
+
+        url = urljoin( self.base_url, endpoint )
+
+        r = self._get( url=url )
 
         if not r.ok:
             raise MetaCatException( f'error in operation : {r}' )
@@ -123,31 +216,72 @@ class Client:
 
         return j
 
-    def schema_add( self, schema_name, schema ):
+    def schemainfo_update( self, schema_name, schema=None, users=None ):
 
-        endpoint=urljoin( 'schema/', schema_name )
+        endpoint=urljoin( 'api/v1/schema/', schema_name )
+
+        data = {}
+        if schema is not None:
+            data['schema'] = schema
+
+        if users is not None:
+            data['users'] = users
 
         url = urljoin( self.base_url, endpoint )
 
-        r = requests.post( url=url, json=schema )
+        r = self._post( url=url, json=data )
 
         if not r.ok:
-            #print(r)
-            #print(r.json() )
-            raise MetaCatException( f'error in operation : {r}' )
+            j = r.json()
+            if j and 'error' in j:
+                ex = MetaCatException( str(j) ) 
+            else:
+                ex = MetaCatException( f'error in operation : {r}' )
+
+            raise ex
+
+        elif r.ok:
+            j = r.json()
+
+            if 'error' in j:
+                raise MetaCatException( j['error'] )
+
+            return j
+
+    def schemainfo_delete( self, schema_name, schema=None, users=None ):
+
+        endpoint=urljoin( 'api/v1/schema/', schema_name )
+
+        data = {}
+        if schema is not None:
+            data['schema'] = schema
+
+        if users is not None:
+            data['users'] = users
+
+        url = urljoin( self.base_url, endpoint )
+
+        r = self._delete( url=url, json=data )
+
+        if not r.ok:
+            j = r.json()
+            if j and 'error' in j:
+                ex = MetaCatException( str(j) ) 
+            else:
+                ex = MetaCatException( f'error in operation : {r}' )
+
+            raise ex
 
         if r.ok:
             j = r.json()
 
             if 'error' in j:
                 raise MetaCatException( j['error'] )
+            return j
 
-            id_ = j['id']
 
-            return id_
-
-    def schemas_find( self, filter_fields : Optional[dict] = None ):
-        endpoint= 'schemas'
+    def schemainfo_find( self, filter_fields : Optional[dict] = None ):
+        endpoint= 'api/v1/schemas'
 
         params={}
 
@@ -156,14 +290,12 @@ class Client:
         except:
             raise MetaCatException( 'Bad filter' )
 
-
         url = urljoin(self.base_url, endpoint) 
 
-        r = requests.get(  url=url, params=params )
+        r = self._get(  url=url, params=params )
 
         if not r.ok:
             raise MetaCatException( f'error in operation : {r}' )
-
 
         j = r.json() if len(r.content) > 0 else {}
 
@@ -178,18 +310,21 @@ class Client:
 
     def dataset_add( self, schema_name : str, metadata : Dataset ) -> str:
 
-        endpoint='dataset'
+        endpoint='api/v1/dataset'
         params={}
 
         params['schema'] = schema_name
 
         url = urljoin( self.base_url, endpoint )
 
-        r = requests.post(  url=url
+        r = self._post(  url=url
                           , json=metadata.model_dump(exclude_none=True)
                           , params=params
                          )
         if not r.ok:
+
+            j = r.json()
+            print(j)
             raise MetaCatException( f'error in operation : {r}' )
 
         j = r.json()
@@ -201,10 +336,10 @@ class Client:
 
     def dataset_get( self, metadata_id ) -> Dataset:
 
-        endpoint=urljoin( 'dataset/', quote_plus( metadata_id  ) )
+        endpoint=urljoin( 'api/v1/dataset/', quote_plus( metadata_id  ) )
         url = urljoin(self.base_url, endpoint) 
 
-        r = requests.get(  url=url )
+        r = self._get(  url=url )
 
         if not r.ok:
             raise MetaCatException( f'error in operation : {r}' )
@@ -217,7 +352,7 @@ class Client:
         return j
 
     def datasets_find( self, filter_fields : Optional[dict] = None ):
-        endpoint= 'datasets'
+        endpoint= 'api/v1/datasets'
 
         params={}
 
@@ -229,7 +364,7 @@ class Client:
 
         url = urljoin(self.base_url, endpoint) 
 
-        r = requests.get(  url=url, params=params )
+        r = self._get(  url=url, params=params )
 
         if not r.ok:
             raise MetaCatException( f'error in operation : {r}' )
@@ -247,4 +382,67 @@ class Client:
 
 
 
+
+
+class OIDCClient( Client ):
+    def __init__(self, base_url : str
+                 , token_url : str
+                 , client_id
+                 , client_secret
+                 , access_token : str, access_expires : int
+                 , refresh_token : str, refresh_expires : int
+                ):
+
+        super().__init__( base_url )
+        self.client_id = client_id
+        self.client_secret = client_secret
+
+        self.token_url = token_url
+
+        self.set_tokens( access_token, 0, refresh_token, 0 )
+
+        token = {'access_token' : access_token
+                 , 'refresh_token' : refresh_token
+                 , 'token_type' : 'Bearer'
+                 , 'expires_in' : access_expires }
+
+        try:
+            self.oauth = OAuth2Session( client_id, token=token )
+        except Exception as e:
+            print(e)
+
+    def _get(self, *args, **kwargs ):
+        return self.oauth.get( *args, **kwargs )
+
+    def _post( self, *args, **kwargs ):
+        return self.oauth.post( *args, **kwargs )
+
+    def _delete( self, *args, **kwargs ):
+        return self.oauth.delete( *args, **kwargs )
+
+
+    @property
+    def access_token(self):
+        return self._access_token
+
+    def set_tokens(self, access_token, access_expires, refresh_token, refresh_expires ):
+        self._access_token = access_token
+        self._refresh_token = refresh_token
+
+        self._access_expires = access_expires
+        self._refresh_expires = refresh_expires
+
+    def refresh_tokens(self):
+
+        token = self.oauth.refresh_token( self.token_url
+                                , client_id=self.client_id
+                                , client_secret=self.client_secret )
+
+        access_token = token['access_token']
+        access_expires = token['expires_in']
+        refresh_token = token['refresh_token']
+        refresh_expires = token['refresh_expires_in']
+
+        self.set_tokens( access_token, access_expires, refresh_token, refresh_expires )
+        return
 
