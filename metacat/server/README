@@ -1,8 +1,8 @@
+Copy/create the oidc_config.env (Ensure the contents are correct
+cp oidc_config_local.json oidc_config.env
 
 
-
-
-run metacat in comntainer
+run metacat in container
 docker-compose up --build
 
 

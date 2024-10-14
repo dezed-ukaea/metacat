@@ -17,6 +17,7 @@ services:
       - catamel
     environment:
       - PYTHONUNBUFFERED=1
+
   mongodb_seed:
     image: bitnami/mongodb:4.2
     volumes:
@@ -30,6 +31,22 @@ services:
     depends_on:
       - mongodb
     restart: on-failure
+
+
+  metacat_seed:
+    image: bitnami/mongodb:4.2
+    volumes:
+      - "./seed_db_metacat/:/seed"
+      - "./seed_db_metacat/mongo_import.sh:/mnt/mongo_import.sh"
+    command: 
+      - "sh"
+      - "-c"
+      - "chmod u+x /mnt/mongo_import.sh && /mnt/mongo_import.sh"
+    user: "0:0"
+    depends_on:
+      - mongodb
+
+
   mongodb:
     image: bitnami/mongodb:4.2
       #ports:

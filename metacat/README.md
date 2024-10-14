@@ -1,23 +1,28 @@
 Start the keycloak container
-`docker-compose up keycloak-compose.yaml`
+`docker-compose -f keycloak-compose.yaml`up -d
 
 Create realm a realm eg realm1
 
-Create a client (eg metacat-test) in realm1. Remember the client key.
+Create a client (eg metacat-test) in realm1. Remember the client secret. Create a role 'admin'
 
-Create a user `test` and assign the `admin` role. Remember the password
+Create a user 'test'. Set the password to 'test'. Set the email as verified. In role mapping assing a role (metacat-test admin).
+Enable authentication and Authorization
+
+
+
 
 
 
 
 
 Create serverclient_secrets.json
-Replace MACHINE_NAME
+Replace client secret with that remembered from keycloak
+Replace MACHINE_NAME with the local machine name (ensure '.local' suffix)
 `
 {
     "web": {
         "client_id": "metacat-test",
-        "client_secret": "T0CxgiUjIejXTg1QZiUochV9qPu2BoeC",
+        "client_secret": "<CLIENT SECRET>",
         "auth_uri": "http://MACHINE_NAME:8180/realms/realm1/protocol/openid-connect/auth",
         "token_uri": "http://MACHINE_NAME:8180/realms/realm1/protocol/openid-connect/token",
         "token_introspection_uri": "http://MACHINE_NAME:8180/realms/realm1/protocol/openid-connect/token/introspect",
@@ -35,17 +40,11 @@ Create client/oidc_config.env
 Replace MACHINE_NAME
 `
 CLIENT_ID=metacat-test
-CLIENT_SECRET=<CILIENT KEY>
+CLIENT_SECRET=<CLIENT SECRET>
 TOKEN_URL=http://MACHINE_NAME:8180/realms/realm1/protocol/openid-connect/token
 CLIENT_USER=test
 CLIENT_PASSWORD=test
 `
-
-
-
-
-
-
 
 
 

@@ -17,8 +17,6 @@ os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
 class MetaCatException( Exception ):
     pass
-    #def __init__(self, *args ):
-    #    super().__init__( *args )
 
 class SchemaException( MetaCatException ):
     pass
@@ -78,6 +76,46 @@ class Dataset(Ownable):
     version: Optional[str] = None
     scientificMetadata: Optional[Dict] = None
 
+class Instrument(pydantic.BaseModel):
+
+    pid: Optional[str] = None
+    name : str
+    customMetadata : Optional[Dict]=None
+    createdBy : Optional[str]=None
+    updatedBy : Optional[str]=None
+    updatedAt : Optional[str]=None
+    createdAt : Optional[str]=None
+
+
+class Proposal(Ownable):
+    """
+    Defines the purpose of an experiment
+    """
+
+    proposalId : str
+    pi_email : Optional[str] = None
+    pi_firstname : Optional[str] = None
+    pi_lastname : Optional[str] = None
+    email : str
+    firstname : Optional[str] = None
+    lastname : Optional[str] = None
+    title : Optional[str] = None
+    abstract : Optional[str] = None
+    startTime : Optional[str] = None
+    endTime : Optional[str] = None
+    MeasurementPeriodList : Optional[ List[dict] ] = None
+
+class Sample(Ownable):
+    """
+    Models describing the characteristics of the samples to be investigated.
+    Raw datasets should be linked to such sample definitions.
+    """
+
+    sampleId: Optional[str] = None
+    owner: Optional[str] = None
+    description: Optional[str] = None
+    sampleCharacteristics: Optional[dict] = None
+    isPublished: bool = False
 
 class RawDataset(Dataset):
     """
@@ -125,7 +163,7 @@ class Client:
     def _delete( self, *args, **kwargs ):
         return requests.delete( *args, **kwargs )
 
-    def userinfo_get(self, username):
+    def __userinfo_get(self, username):
         
         endpoint=urljoin( ' /api/v1/user/', username )
 
@@ -144,7 +182,7 @@ class Client:
 
             return j
 
-    def userinfo_update(self, username, groups = None, roles=None):
+    def __userinfo_update(self, username, groups = None, roles=None):
         
         endpoint=urljoin( ' /api/v1/user/', username )
 
@@ -171,7 +209,7 @@ class Client:
 
             return j
 
-    def userinfo_delete(self, username, groups = None, roles=None):
+    def __userinfo_delete(self, username, groups = None, roles=None):
         
         endpoint=urljoin( ' /api/v1/user/', username )
 
@@ -200,7 +238,7 @@ class Client:
 
     def schemainfo_get( self, schema_name ):
 
-        endpoint=urljoin( 'api/v1/schema/', schema_name )
+        endpoint=urljoin( 'api/v1/schemas/', schema_name )
 
         url = urljoin( self.base_url, endpoint )
 
@@ -216,7 +254,8 @@ class Client:
 
         return j
 
-    def schemainfo_update( self, schema_name, schema=None, users=None ):
+    def __schemainfo_update( self, schema_name, schema=None, users=None ):
+        return
 
         endpoint=urljoin( 'api/v1/schema/', schema_name )
 
@@ -248,7 +287,8 @@ class Client:
 
             return j
 
-    def schemainfo_delete( self, schema_name, schema=None, users=None ):
+    def __schemainfo_delete( self, schema_name, schema=None, users=None ):
+        return
 
         endpoint=urljoin( 'api/v1/schema/', schema_name )
 
@@ -307,10 +347,82 @@ class Client:
 
         return j
 
+    def instrument_add( self, schema_name : str, metadata : Instrument ):
+
+        endpoint='api/v1/instruments'
+        params={}
+
+        params['schema'] = schema_name
+
+        url = urljoin( self.base_url, endpoint )
+
+        r = self._post(  url=url
+                       , json=metadata.model_dump(exclude_none=True)
+                       , params=params
+                       )
+
+        if not r.ok:
+            raise MetaCatException( f'error in operation : {r}' )
+        else:
+
+            j = r.json()
+
+            if 'error' in j:
+                raise MetaCatException( j['error'] )
+
+            return j['pid']
+
+    def instrument_get( self, metadata_id ):
+        endpoint=urljoin( 'api/v1/instruments/', quote_plus( metadata_id  ) )
+        url = urljoin(self.base_url, endpoint) 
+
+        r = self._get(  url=url )
+
+        if not r.ok:
+            raise MetaCatException( f'error in operation : {r}' )
+
+        j = r.json()
+
+        if 'error' in j:
+            raise MetaCatException( j['error'] )
+
+        return j
+
+
+
+    def instruments_find( self, filter_fields : Optional[dict] = None ):
+        endpoint= 'api/v1/instruments'
+
+        params={}
+
+        try:
+            params['filter'] = json.dumps( filter_fields )
+        except:
+            raise MetaCatException( 'Bad filter' )
+
+        url = urljoin(self.base_url, endpoint) 
+
+        r = self._get(  url=url, params=params )
+
+        if not r.ok:
+            raise MetaCatException( f'error in operation : {r}' )
+
+        j = r.json() if len(r.content) > 0 else {}
+
+        if 'error' in j:
+            if 'message' in j['error']:
+                raise MetaCatException( j['error']['message'] )
+            else:
+                raise MetaCatException( j['error'] )
+
+        return j
+
+
+
 
     def dataset_add( self, schema_name : str, metadata : Dataset ) -> str:
 
-        endpoint='api/v1/dataset'
+        endpoint='api/v1/datasets'
         params={}
 
         params['schema'] = schema_name
@@ -321,22 +433,25 @@ class Client:
                           , json=metadata.model_dump(exclude_none=True)
                           , params=params
                          )
+
         if not r.ok:
+            raise MetaCatException( f'error in operation : {r}' )
+        else:
 
             j = r.json()
-            print(j)
-            raise MetaCatException( f'error in operation : {r}' )
 
-        j = r.json()
+            if 'error' in j:
+                ex = MetaCatException( j['error'], j.get('detail')  )
 
-        if 'error' in j:
-            raise MetaCatException( j['error'] )
+                raise ex
 
-        return j['pid']
+
+
+            return j['pid']
 
     def dataset_get( self, metadata_id ) -> Dataset:
 
-        endpoint=urljoin( 'api/v1/dataset/', quote_plus( metadata_id  ) )
+        endpoint=urljoin( 'api/v1/datasets/', quote_plus( metadata_id  ) )
         url = urljoin(self.base_url, endpoint) 
 
         r = self._get(  url=url )
@@ -380,8 +495,157 @@ class Client:
         return j
 
 
+    def proposal_add( self, schema_name : str, metadata : Proposal ):
+
+        endpoint='api/v1/proposals'
+        params={}
+
+        params['schema'] = schema_name
+
+        url = urljoin( self.base_url, endpoint )
+
+        r = self._post(  url=url
+                       , json=metadata.model_dump(exclude_none=True)
+                       , params=params
+                       )
+
+        if not r.ok:
+            raise MetaCatException( f'error in operation : {r}' )
+        else:
+
+            j = r.json()
+
+            if 'error' in j:
+                raise MetaCatException( j['error'] )
+
+            return j['pid']
+
+    def proposal_get( self, metadata_id ):
+        endpoint=urljoin( 'api/v1/proposals/', quote_plus( metadata_id  ) )
+        url = urljoin(self.base_url, endpoint) 
+
+        r = self._get(  url=url )
+
+        if not r.ok:
+            raise MetaCatException( f'error in operation : {r}' )
+
+        j = r.json()
+
+        if 'error' in j:
+            raise MetaCatException( j['error'] )
+
+        return j
 
 
+        pass
+
+    def proposals_find( self, filter_fields : Optional[dict] = None ):
+        endpoint= 'api/v1/proposals'
+
+        if filter_fields ==None:
+            filter_fields = {}
+
+        params={}
+
+        try:
+            params['filter'] = json.dumps( filter_fields )
+        except:
+            raise MetaCatException( 'Bad filter' )
+
+        url = urljoin(self.base_url, endpoint) 
+
+        r = self._get(  url=url, params=params )
+
+        if not r.ok:
+            raise MetaCatException( f'error in operation : {r}' )
+
+        j = r.json() if len(r.content) > 0 else {}
+
+        if 'error' in j:
+            if 'message' in j['error']:
+                raise MetaCatException( j['error']['message'] )
+            else:
+                raise MetaCatException( j['error'] )
+
+        return j
+
+
+
+
+
+    def sample_add( self, schema_name : str, metadata : Sample ):
+
+        endpoint='api/v1/samples'
+        params={}
+
+        params['schema'] = schema_name
+
+        url = urljoin( self.base_url, endpoint )
+
+        r = self._post(  url=url
+                       , json=metadata.model_dump(exclude_none=True)
+                       , params=params
+                       )
+
+        if not r.ok:
+            raise MetaCatException( f'error in operation : {r}' )
+        else:
+
+            j = r.json()
+
+            if 'error' in j:
+                raise MetaCatException( j['error'] )
+
+            return j['pid']
+
+    def samples_get( self, metadata_id ):
+        endpoint=urljoin( 'api/v1/samples/', quote_plus( metadata_id  ) )
+        url = urljoin(self.base_url, endpoint) 
+
+        r = self._get(  url=url )
+
+        if not r.ok:
+            raise MetaCatException( f'error in operation : {r}' )
+
+        j = r.json()
+
+        if 'error' in j:
+            raise MetaCatException( j['error'] )
+
+        return j
+
+
+        pass
+
+    def samples_find( self, filter_fields : Optional[dict] = None ):
+        endpoint= 'api/v1/samples'
+
+        if filter_fields ==None:
+            filter_fields = {}
+
+        params={}
+
+        try:
+            params['filter'] = json.dumps( filter_fields )
+        except:
+            raise MetaCatException( 'Bad filter' )
+
+        url = urljoin(self.base_url, endpoint) 
+
+        r = self._get(  url=url, params=params )
+
+        if not r.ok:
+            raise MetaCatException( f'error in operation : {r}' )
+
+        j = r.json() if len(r.content) > 0 else {}
+
+        if 'error' in j:
+            if 'message' in j['error']:
+                raise MetaCatException( j['error']['message'] )
+            else:
+                raise MetaCatException( j['error'] )
+
+        return j
 
 
 class OIDCClient( Client ):

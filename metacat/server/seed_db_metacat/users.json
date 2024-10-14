@@ -1,0 +1,4 @@
+{"_id":{"$oid":"66733a6dec48d1d6fa05f654"},"name":"rob","groups":["g1"],"roles":[]}
+{"_id":{"$oid":"66733a6dec48d1d6fa05f655"},"name":"sally","groups":[],"roles":[]}
+{"_id":{"$oid":"66733a6dec48d1d6fa05f656"},"name":"fred","groups":["g1","g2"],"roles":[]}
+{"_id":{"$oid":"66733a6dec48d1d6fa05f65c"},"name":"test","groups":[],"roles":["schema"]}

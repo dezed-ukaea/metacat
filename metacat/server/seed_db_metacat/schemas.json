@@ -1,0 +1,6 @@
+{"_id":{"$oid":"66733a6dec48d1d6fa05f657"},"name":"invalid","schema":{"minItems":"bob"},"auth":{"users":["test"],"groups":[]}}
+{"name":"any","schema":{},"auth":{"users":[],"groups":[]}}
+{"_id":{"$oid":"66733a6dec48d1d6fa05f658"},"name":"s1","schema":{"type":"object","properties":{"field1":{"type":"string"}},"required":["field1"]},"auth":{"users":["rob"],"groups":["g1"]}}
+{"_id":{"$oid":"66733a6dec48d1d6fa05f659"},"name":"any","schema":{},"auth":{"users":[],"groups":["g2"]}}
+{"_id":{"$oid":"66733a6dec48d1d6fa05f65a"},"name":"s3","schema":{},"auth":{"users":["rob"],"groups":["g2","g3"]}}
+{"_id":{"$oid":"66733a6dec48d1d6fa05f65b"},"name":"bad","schema":{"type":"object","properties":{"a":{"type":"string"}},"required":["a"]},"auth":{"users":[],"groups":[]}}

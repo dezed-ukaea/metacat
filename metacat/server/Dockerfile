@@ -12,6 +12,15 @@ COPY requirements.txt requirements.txt
 
 RUN pip3 install -r requirements.txt
 
-COPY . .
+RUN adduser --system --no-create-home nonroot
 
-CMD [ "python3", "-m" , "flask", "--app", "main", "run", "--host=0.0.0.0"]
+USER nonroot
+
+COPY --chown=nonroot . .
+
+#RUN echo $(pwd) && echo $(ls -laF)
+
+CMD [ "fastapi", "run" , "app.py", "--host", "0.0.0.0", "--port", "5000"]
+#CMD [ "python3", "-m" , "flask", "--app", "app", "run", "--host=0.0.0.0"]
+#CMD [ "uwsgi", "--http" , "0.0.0.0:5000", "--module", "app:app"]
+#CMD [ "uwsgi", "uswgi.ini"]
