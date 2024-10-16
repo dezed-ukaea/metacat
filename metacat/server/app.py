@@ -75,9 +75,9 @@ class ScicatClientEx( pyscicat.client.ScicatClient ):
         params = {}
         params['filter'] = json.dumps( filter_fields )
 
-        endpoint = 'Instruments?filter=%s' % params['filter']
+        endpoint = 'instruments?filter=%s' % params['filter']
 
-        res = self._call_endpoint( cmd='get', endpoint=endpoint, operation='iinstruments_find' )
+        res = self._call_endpoint( cmd='get', endpoint=endpoint, operation='instruments_find' )
 
         return res
 
@@ -90,7 +90,7 @@ class ScicatClientEx( pyscicat.client.ScicatClient ):
         params = {}
         params['filter'] = json.dumps( filter_fields )
 
-        endpoint = 'Proposals?filter=%s' % params['filter']
+        endpoint = 'proposals?filters=%s' % params['filter']
 
         res = self._call_endpoint( cmd='get', endpoint=endpoint, operation='proposals_find' )
 
@@ -105,7 +105,6 @@ class ScicatClientEx( pyscicat.client.ScicatClient ):
         params['filter'] = json.dumps( filter_fields )
 
         endpoint = 'Samples?filter=%s' % params['filter']
-        #print(endpoint)
 
         res = self._call_endpoint( cmd='get', endpoint=endpoint, operation='samples_find' )
 
@@ -647,9 +646,11 @@ async def create_dataset( schema : str, ds_data : Data ):
                                        , username=scicat_user
                                        , password=scicat_password )
 
-        ds_id = scicat.upload_new_dataset( ds )
+        ds_res = scicat.upload_new_dataset( ds )
+        pid = ds_res['id']
 
-        return {'pid' : ds_id}#, 200
+        return {'pid' : pid}#, 200
+        #return {'pid' : ds_id}#, 200
 
 @app.get("/api/v1/datasets/{prefix}/{pid}", dependencies=[Depends(valid_access_token)])
 async def dataset_get( prefix : str , pid : str ):
@@ -695,7 +696,7 @@ async def datasets_find( filter : str ):
                                               , username=scicat_user
                                               , password=scicat_password )
 
-        ds = scicat.datasets_get_many( scicat_filter )
+        ds = scicat.datasets_get_many( where=scicat_filter )
 
         return ds
     except pyscicat.client.ScicatCommError as e:
@@ -730,8 +731,6 @@ async def instruments_find( filter=None  ):
 
     #the filter may need adjusting to meet scicat schema requirements
     filter_fields = filter
-
-    #print('FILTER', filter_fields)
 
     filter_fields = {} if filter_fields is None else filter_fields
     filter_fields = json.loads( filter_fields )
@@ -775,7 +774,6 @@ async def instruments_find( filter=None  ):
 
 @app.get("/api/v1/instruments/{pid}", dependencies=[Depends(valid_access_token)])
 async def instruments_get( pid : str ):
-    #print('INSTR GET', pid )
     metadata_pid = urllib.parse.unquote_plus( pid )
 
     pid_ = metadata_pid
@@ -836,16 +834,17 @@ async def instruments_put( schema : str, instr : Data  ):
         scicat_user=SCICAT_INGESTOR_USER
         scicat_password=SCICAT_INGESTOR_PASSWORD
 
-        ds = pyscicat.model.Instrument( **data )
+        instr = pyscicat.model.Instrument( **data )
+
         scicat_host = '%s/api/v3' % SCICAT_HOST
 
         scicat = pyscicat.client.ScicatClient( base_url=scicat_host
                                        , username=scicat_user
                                        , password=scicat_password )
 
-        ds_id = scicat.instruments_create( ds )
+        instr_res = scicat.instruments_create( instr )
 
-        return {'pid' : ds_id}#, 200
+        return {'pid' : instr_res['pid']}#, 200
 
 
     return
@@ -914,16 +913,16 @@ async def proposals_put( schema : str, instr : Data  ):
         scicat_user=SCICAT_INGESTOR_USER
         scicat_password=SCICAT_INGESTOR_PASSWORD
 
-        ds = pyscicat.model.Proposal( **data )
+        proposal = pyscicat.model.Proposal( **data )
         scicat_host = '%s/api/v3' % SCICAT_HOST
 
         scicat = pyscicat.client.ScicatClient( base_url=scicat_host
                                        , username=scicat_user
                                        , password=scicat_password )
 
-        ds_id = scicat.proposals_create( ds )
+        create_res = scicat.proposals_create( proposal )
 
-        return {'pid' : ds_id}#, 200
+        return {'pid' : create_res['proposalId']}#, 200
 
 
     return

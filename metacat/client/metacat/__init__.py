@@ -31,7 +31,7 @@ class DatasetType(str, enum.Enum):
     derived = "derived"
 
 class Base( pydantic.BaseModel ):
-    createdBy : Optional[ str ]
+    createdBy : Optional[ str ]=None
     updatedBy: Optional[str] = None
     updatedAt: Optional[str] = None
     createdAt: Optional[str] = None
@@ -80,11 +80,12 @@ class Instrument(pydantic.BaseModel):
 
     pid: Optional[str] = None
     name : str
+    uniqueName : Optional[str] 
     customMetadata : Optional[Dict]=None
-    createdBy : Optional[str]=None
-    updatedBy : Optional[str]=None
-    updatedAt : Optional[str]=None
-    createdAt : Optional[str]=None
+    #createdBy : Optional[str]=None
+    #updatedBy : Optional[str]=None
+    #updatedAt : Optional[str]=None
+    #createdAt : Optional[str]=None
 
 
 class Proposal(Ownable):
@@ -99,7 +100,7 @@ class Proposal(Ownable):
     email : str
     firstname : Optional[str] = None
     lastname : Optional[str] = None
-    title : Optional[str] = None
+    title : Optional[str] 
     abstract : Optional[str] = None
     startTime : Optional[str] = None
     endTime : Optional[str] = None
@@ -392,6 +393,7 @@ class Client:
 
     def instruments_find( self, filter_fields : Optional[dict] = None ):
         endpoint= 'api/v1/instruments'
+        #print('METACAT', filter_fields)
 
         params={}
 
@@ -399,6 +401,7 @@ class Client:
             params['filter'] = json.dumps( filter_fields )
         except:
             raise MetaCatException( 'Bad filter' )
+        #print('PARAMS', params)
 
         url = urljoin(self.base_url, endpoint) 
 
@@ -446,6 +449,8 @@ class Client:
                 raise ex
 
 
+            #print('AAAA')
+            #print(j)
 
             return j['pid']
 

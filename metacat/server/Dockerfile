@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM python:3.8-slim-buster
+FROM python:3.9-slim-buster
 
 #ENV SCICAT_HOST  host.docker.internal
 
@@ -9,7 +9,11 @@ FROM python:3.8-slim-buster
 WORKDIR /python-docker
 
 COPY requirements.txt requirements.txt
-
+RUN apt-get update && \
+    apt-get install --yes --no-install-recommends \
+    openssh-client \ 
+    git \
+    && apt-get clean 
 RUN pip3 install -r requirements.txt
 
 RUN adduser --system --no-create-home nonroot

@@ -363,7 +363,9 @@ class TestBadRead( BaseTest ):
         self.assertFalse( metadata )
 
         with self.assertRaises( metacat.MetaCatException ):
-            metadata = self.client.datasets_find( 1 )
+            metadata = self.client.datasets_find( 0 )
+            for i,m in enumerate( metadata) :
+                print( i, m)
 
 #@unittest.skip
 class TestSchema( BaseTest ):
@@ -413,7 +415,7 @@ class TestDataset( BaseTest ):
 
         j_sm = {}
 
-        j_sm['a']=1
+        #j_sm['a']=1
 
         self.md = metacat.RawDataset( owner='slartibartfast'
                              , createdBy='bob'
@@ -423,7 +425,25 @@ class TestDataset( BaseTest ):
                              , size=42
                              , contactEmail="slartibartfast@magrathea.org"
                              , creationLocation= 'magrathea'
-                             , creationTime=str(datetime.datetime.now())
+                             , creationTime=str(datetime.datetime.now().isoformat())
+                             , instrumentId='ukri_instrument1'
+                             , type="raw"
+                             , proposalId="psi_proposal1"
+                             , dataFormat="planet"
+                             , principalInvestigator="A. Mouse"
+                             , sourceFolder='/foo/bar'
+                             , scientificMetadata= j_sm
+                             , sampleId="gargleblasterxxx"
+                    )
+        #return
+        self.md = metacat.RawDataset( owner='slartibartfast'
+                             , ownerGroup='g1'
+                             , accessGroups=['g2']
+                             , datasetName='dsname'
+                             , size=42
+                             , contactEmail="slartibartfast@magrathea.org"
+                             , creationLocation= 'magrathea'
+                             , creationTime=str(datetime.datetime.now().isoformat())
                              , instrumentId='ukri_instrument1'
                              , type="raw"
                              , proposalId="psi_proposal1"
@@ -523,6 +543,7 @@ class TestDataset( BaseTest ):
 
         self.assertTrue( metadata_pid )
        
+        #metadata2 = self.client.datasets_find( {'pid' : metadata_pid} )
         metadata2 = self.client.datasets_find( {'pid' : metadata_pid} )
 
         self.assertTrue( metadata2 )
@@ -666,7 +687,8 @@ class TestInstrument(BaseTest):
 
 
     def test_create(self):
-        instr = metacat.Instrument(name=self.instr_name)
+        instr = metacat.Instrument(name=self.instr_name, uniqueName=self.instr_name)
+
         metadata_pid = self.client.instrument_add( 'any', instr )
 
         res = self.client.instrument_get( metadata_pid )
@@ -675,10 +697,13 @@ class TestInstrument(BaseTest):
     def test_find(self):
         res = self.client.instruments_find()
 
-        filter_fields = {'where':{'name' : {'eq': self.instr_name}}}
+        filter_fields = {'where' : {'name' : {'eq': self.instr_name}}}
+        filter_fields = {'where' : {'name' : self.instr_name}}
+        #filter_fields = {'name' : {'eq': self.instr_name}}
+        #filter_fields = {'name' : self.instr_name}
 
         res = self.client.instruments_find( filter_fields )
-
+        self.assertEqual( 1, len(res))
         self.assertEqual( res[0]['name'], self.instr_name )
 
 
@@ -702,10 +727,12 @@ class TestProposal(BaseTest):
 
 
     def test_create(self):
-        p = metacat.Proposal(createdBy='createdBy'
-                                 , ownerGroup='ownerGroup'
-                                 , email='x@x.com'
-                                 , proposalId=self.proposalId)
+        p = metacat.Proposal( ownerGroup='ownerGroup'
+                             , email='x@x.com'
+                             , title='title'
+                             , proposalId=self.proposalId)
+
+
 
         metadata_pid = self.client.proposal_add( 'any', p )
 
@@ -715,9 +742,11 @@ class TestProposal(BaseTest):
 
     def test_find(self):
 
-        res = self.client.proposals_find()
+        #res = self.client.proposals_find()
 
         filter_fields = {'where':{'proposalId' : {'eq': self.proposalId}}}
+        filter_fields = {'where':{'proposalId' : self.proposalId}}
+
         res = self.client.proposals_find(filter_fields)
 
         self.assertEqual(self.proposalId, res[0]['proposalId'] )
@@ -739,17 +768,21 @@ class TestSample(BaseTest):
 
 
     def test_create(self):
-        id = str(uuid.uuid4())
-        instr = metacat.Sample(sampleId = id
-                               ,createdBy='createdBy'
+        sampleId = str(uuid.uuid4())
+        #sample = metacat.Sample(sampleId = sampleId
+        #                       ,createdBy='createdBy'
+        #                         , ownerGroup='ownerGroup'
+        #                         , email='x@x.com'
+        #                       )
+        sample = metacat.Sample(sampleId = sampleId
                                  , ownerGroup='ownerGroup'
                                  , email='x@x.com'
                                )
 
-        metadata_pid = self.client.sample_add( 'any', instr )
+        add_res = self.client.sample_add( 'any', sample )
 
-        res = self.client.samples_get( metadata_pid )
-        self.assertEqual( metadata_pid, res['sampleId'] )
+        res = self.client.samples_get( add_res['sampleId'] )
+        self.assertEqual( res['sampleId'], sampleId )
 
 class TestPydantic( BaseTest ):
     def test(self):
