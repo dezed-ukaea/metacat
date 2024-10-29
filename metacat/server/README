@@ -1,13 +1,13 @@
 Copy/create the oidc_config.env (Ensure the contents are correct
 cp oidc_config_local.json oidc_config.env
 
+See run-dev.sh & run-prod.sh for running
 
-run metacat in container
-docker-compose up --build
+metacat-service.sh --env dev --action build
+metacat-service.sh --env dev --action start
+metacat-service.sh --env dev --action stop
 
 
-run metacat standalone with scicatlive
-SCICAT_HOST=http://localhost MONGODB_HOST=localhost python main.py 
  
 
 

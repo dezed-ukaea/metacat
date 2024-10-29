@@ -1,0 +1,12 @@
+services:
+  metacat:
+    container_name: metacat-dev
+    ports:
+      - "5001:5000"
+
+  metacat-mongodb:
+    container_name: metacat-mongodb-dev
+
+  metacat-seed:
+    container_name: metacat-seed-dev
+

@@ -1,0 +1,57 @@
+services:
+  #  reverse-proxy:
+  #  image: traefik:2.5
+  #    command: --api.insecure=true --providers.docker=true --entrypoints.web.address=:80
+  #  ports:
+  #    - "80:80"
+  #    - "8080:8080"
+  #  volumes:
+  #    - /var/run/docker.sock:/var/run/docker.sock
+
+
+  metacat:
+    container_name: metacat
+    build: 
+      context: .
+      dockerfile: ./Dockerfile
+        #ports:
+      #- "${MC_PORT}:${MC_PORT}"
+      #- "5000:5000"
+        #environment:
+        #- MC_PORT=${MC_PORT}
+    depends_on:
+      metacat-seed:
+        condition: service_completed_successfully
+
+
+  metacat-seed:
+    container_name: metacat-seed
+    #profiles: ["none"]
+    image: bitnami/mongodb:4.2
+    volumes:
+      - "./seed_db_metacat/:/seed"
+      - "./seed_db_metacat/mongo_import.sh:/mnt/mongo_import.sh"
+    command: 
+      - "sh"
+      - "-c"
+      - "chmod u+x /mnt/mongo_import.sh && /mnt/mongo_import.sh"
+    user: "0:0"
+    depends_on:
+      - metacat-mongodb
+
+
+  metacat-mongodb:
+    container_name: metacat-mongodb
+    #profiles: ["none"]
+    image: bitnami/mongodb:4.2
+      #ports:
+      #- "27017:27017"
+    volumes:
+      - "mongodb_data:/bitnami"
+
+        #environment:
+        #BASE_URL: "http://catamel:3000/api/v3"
+        #FACILITY: "SAMPLE-SITE"
+volumes:
+  mongodb_data:
+    driver: local

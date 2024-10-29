@@ -497,8 +497,6 @@ class TestDataset( BaseTest ):
         with self.assertRaises( metacat.MetaCatException ) as ctx:
             self.client.dataset_add( 's1', self.md ) 
 
-        #print('')
-        #print('EX', ctx.exception)
         self.assertTrue( 'data does not match schema' in str(ctx.exception))
 
         #si = self.client.schemainfo_delete( 's1', users=['test'] )
@@ -511,7 +509,6 @@ class TestDataset( BaseTest ):
             self.client.dataset_add( 'missing', self.md ) 
 
 
-        print(ctx.exception)
         self.assertTrue( 'does not exist' in str(ctx.exception) )
 
 
@@ -806,6 +803,124 @@ class TestPydantic( BaseTest ):
                                 , scientificMetadata= j_sm
                                 , sampleId="gargleblasterxxx"
                                )
+
+class TestDiagnostic( BaseTest ):
+    def setUp(self):
+        super().setUp()
+
+        self.client = metacat.OIDCClient( METACAT_HOST
+                                         , self.token_url
+                                         , OIDC_CLIENT_ID
+                                         , OIDC_CLIENT_SECRET
+                                         , access_token=self.access_token
+                                         , access_expires=self.access_expires
+                                         , refresh_token=self.refresh_token
+                                         , refresh_expires=self.refresh_expires
+                                        )
+
+
+    def test(self):
+
+        d = metacat.Diagnostic(diagnosticName='name'
+                               , diagnosticType='diagnostic type'
+                               , port={}
+                               , diagnostic={} )
+
+        d_pid = self.client.diagnostic_add( 'any', d )
+
+        d2 = self.client.diagnostic_get( d_pid )
+
+        self.assertEqual( d.diagnosticName, d2['diagnosticName'] )
+        self.assertEqual( d.diagnosticType, d2['diagnosticType'] )
+        self.assertEqual( d.port, d2['port'] )
+        self.assertEqual( d.diagnostic, d2['diagnostic'] )
+
+
+        res = self.client.diagnostics_find( {} )
+        
+        res = self.client.diagnostics_find( {'where' : {'diagnosticName' : 'name'}} )
+
+        for r in res:
+            self.assertEqual( 'name', r['diagnosticName'] )
+
+
+import json
+from urllib.parse import urljoin, quote_plus, quote  
+class TestRest(BaseTest):
+    def setUp(self):
+        super().setUp()
+
+        self.client = metacat.OIDCClient( METACAT_HOST
+                                         , self.token_url
+                                         , OIDC_CLIENT_ID
+                                         , OIDC_CLIENT_SECRET
+                                         , access_token=self.access_token
+                                         , access_expires=self.access_expires
+                                         , refresh_token=self.refresh_token
+                                         , refresh_expires=self.refresh_expires
+                                        )
+    def test_proposal_post(self):
+        schema_name = 'any'
+        ds = {'bad':'bad'}
+        params = {}
+        params['schema'] = schema_name
+        data = ds#json.dumps( ds )
+
+        endpoint='api/v1/proposals'
+        url = urljoin( self.client.base_url, endpoint )
+
+        res =  self.client._post( url, json=data, params=params )
+        self.assertEqual( res.status_code, 420 )
+
+
+    def test_sample_post(self):
+        schema_name = 'any'
+        ds = {'bad':'bad'}
+        params = {}
+        params['schema'] = schema_name
+        data = ds#json.dumps( ds )
+
+        endpoint='api/v1/samples'
+        url = urljoin( self.client.base_url, endpoint )
+
+        res =  self.client._post( url, json=data, params=params )
+
+        #print(res)
+        #print(res.json())
+        self.assertEqual( res.status_code, 422 )
+
+    def test_ds_post(self):
+        schema_name = 'any'
+        ds = {'bad':'bad'}
+        params = {}
+        params['schema'] = schema_name
+        data = ds#json.dumps( ds )
+
+        endpoint='api/v1/datasets'
+        url = urljoin( self.client.base_url, endpoint )
+
+        res =  self.client._post( url, json=data, params=params )
+        self.assertEqual( res.status_code, 422 )
+
+    def test_instrument_post(self):
+        schema_name = 'any'
+        metadata = {'bad':'bad'}
+        params = {}
+        params['schema'] = schema_name
+        data = metadata
+
+        endpoint='api/v1/instruments'
+        url = urljoin( self.client.base_url, endpoint )
+
+        res =  self.client._post( url, json=data, params=params )
+        self.assertEqual( res.status_code, 422 )
+
+    
+                
+
+
+
+
 
 
 

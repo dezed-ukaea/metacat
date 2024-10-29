@@ -144,6 +144,19 @@ class DerivedDataset(Dataset):
     type: DatasetType = DatasetType.derived
 
 
+
+
+#import pydantic
+
+class Diagnostic(pydantic.BaseModel ):
+    diagnosticName : str
+    diagnosticType : str
+    port : dict = {}
+    diagnostic : dict = {}
+
+
+
+
 class Client:
     def __init__(self, base_url : str):
 
@@ -393,7 +406,6 @@ class Client:
 
     def instruments_find( self, filter_fields : Optional[dict] = None ):
         endpoint= 'api/v1/instruments'
-        #print('METACAT', filter_fields)
 
         params={}
 
@@ -401,7 +413,6 @@ class Client:
             params['filter'] = json.dumps( filter_fields )
         except:
             raise MetaCatException( 'Bad filter' )
-        #print('PARAMS', params)
 
         url = urljoin(self.base_url, endpoint) 
 
@@ -436,9 +447,10 @@ class Client:
                           , json=metadata.model_dump(exclude_none=True)
                           , params=params
                          )
-
         if not r.ok:
-            raise MetaCatException( f'error in operation : {r}' )
+            j = r.json()
+            
+            raise MetaCatException( j['detail'] )
         else:
 
             j = r.json()
@@ -447,10 +459,6 @@ class Client:
                 ex = MetaCatException( j['error'], j.get('detail')  )
 
                 raise ex
-
-
-            #print('AAAA')
-            #print(j)
 
             return j['pid']
 
@@ -651,6 +659,88 @@ class Client:
                 raise MetaCatException( j['error'] )
 
         return j
+
+
+
+
+
+    def diagnostic_add( self, schema_name : str, metadata : Diagnostic ):
+
+        endpoint='api/v1/diagnostics'
+        params={}
+
+        params['schema'] = schema_name
+
+        url = urljoin( self.base_url, endpoint )
+
+        r = self._post(  url=url
+                       , json=metadata.model_dump(exclude_none=True)
+                       , params=params
+                       )
+
+        if not r.ok:
+            raise MetaCatException( f'error in operation : {r}' )
+        else:
+
+            j = r.json()
+
+            if 'error' in j:
+                raise MetaCatException( j['error'] )
+
+            return j['pid']
+
+    def diagnostic_get( self, metadata_id ):
+        endpoint=urljoin( 'api/v1/diagnostics/', quote_plus( metadata_id  ) )
+        url = urljoin(self.base_url, endpoint) 
+
+        r = self._get(  url=url )
+
+        if not r.ok:
+            raise MetaCatException( f'error in operation : {r}' )
+
+        j = r.json()
+
+        if 'error' in j:
+            raise MetaCatException( j['error'] )
+
+        return j
+
+
+
+    def diagnostics_find( self, filter_fields : Optional[dict] = None ):
+        endpoint= 'api/v1/diagnostics'
+
+        params={}
+
+        try:
+            params['filter'] = json.dumps( filter_fields )
+        except:
+            raise MetaCatException( 'Bad filter' )
+
+        url = urljoin(self.base_url, endpoint) 
+
+        r = self._get(  url=url, params=params )
+
+        if not r.ok:
+            raise MetaCatException( f'error in operation : {r}' )
+
+        j = r.json() if len(r.content) > 0 else {}
+
+        if 'error' in j:
+            if 'message' in j['error']:
+                raise MetaCatException( j['error']['message'] )
+            else:
+                raise MetaCatException( j['error'] )
+
+        return j
+
+
+
+
+
+
+
+
 
 
 class OIDCClient( Client ):

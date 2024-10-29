@@ -1,6 +1,8 @@
 import ast
 import os
 import json
+import uuid
+import enum
 
 import jsonschema
 from jsonschema import FormatChecker, Draft202012Validator
@@ -22,8 +24,9 @@ from bson.objectid import ObjectId
 
 import pyscicat.client
 import pyscicat.model
+import pydantic
 
-from _db import DBConn, USER_DBNAME
+from _db import DBConn, DBNAME
 
 from pkg_resources import resource_filename
 
@@ -32,6 +35,8 @@ from dotenv import dotenv_values
 
 from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.security import OAuth2AuthorizationCodeBearer
+from fastapi.middleware.cors import CORSMiddleware
+
 from jwt import PyJWKClient
 import jwt
 #from typing import Annotated
@@ -55,7 +60,7 @@ OIDC_AUTH_URL=config['OIDC_AUTH_URL']
 OIDC_REFRESH_URL=config['OIDC_REFRESH_URL']
 OIDC_CERTS_URL=config['OIDC_CERTS_URL']
 
-app = FastAPI()
+app = FastAPI(title='metacat')
 
 oauth_2_scheme = OAuth2AuthorizationCodeBearer(
     tokenUrl=OIDC_TOKEN_URL,
@@ -75,9 +80,13 @@ class ScicatClientEx( pyscicat.client.ScicatClient ):
         params = {}
         params['filter'] = json.dumps( filter_fields )
 
+        print(params)
+
         endpoint = 'instruments?filter=%s' % params['filter']
 
-        res = self._call_endpoint( cmd='get', endpoint=endpoint, operation='instruments_find' )
+        res = self._call_endpoint( cmd='get'
+                , endpoint=endpoint
+                , operation='instruments_find' )
 
         return res
 
@@ -155,13 +164,15 @@ SCICAT_INGESTOR_PASSWORD = metacat_config['SCICAT_INGESTOR_PASSWORD']
 
 SCICAT_HOST=metacat_config.get( "SCICAT_HOST", 'http://catamel:3000')
 MONGODB_HOST=metacat_config.get( "MONGODB_HOST", 'mongodb')
+MONGODB_PORT=metacat_config.get( "MONGODB_PORT", '27017')
+MONGODB_PORT=int(MONGODB_PORT)
 
 print('SCICAT_HOST : ', SCICAT_HOST )
-print('MONGODB HOST : ', MONGODB_HOST )
+print('MONGODB HOST : ', MONGODB_HOST, MONGODB_PORT )
 
 def get_db():
     
-    db = DBConn(MONGODB_HOST)
+    db = DBConn(MONGODB_HOST, MONGODB_PORT)
 
     return db
 
@@ -246,6 +257,127 @@ class GitSchemaRetriever:
 
 
 
+class DatasetType(str, enum.Enum):
+    """type of Dataset"""
+
+    raw = "raw"
+    derived = "derived"
+
+class Base( pydantic.BaseModel ):
+    createdBy : Optional[ str ]=None
+    updatedBy: Optional[str] = None
+    updatedAt: Optional[str] = None
+    createdAt: Optional[str] = None
+
+class Ownable( Base ):
+
+    ownerGroup: str
+    accessGroups: Optional[List[str]] = None
+    instrumentGroup: Optional[str] = None
+
+class Dataset(Ownable):
+    """
+    A dataset, base class for derived and raw datasets
+    """
+
+    pid: Optional[str] = None
+    classification: Optional[str] = None
+    contactEmail: str
+    creationTime: str  # datetime
+    datasetName: Optional[str] = None
+    description: Optional[str] = None
+    history: Optional[                                                                                                        List[dict]
+            ] = None  # list of foreigh key ids to the Messages table
+    instrumentId: Optional[str] = None
+    isPublished: Optional[bool] = False
+    keywords: Optional[List[str]] = None
+    license: Optional[str] = None
+    numberOfFiles: Optional[int] = None
+    numberOfFilesArchived: Optional[int] = None
+    orcidOfOwner: Optional[str] = None
+    packedSize: Optional[int] = None
+    owner: str
+    ownerEmail: Optional[str] = None
+    sharedWith: Optional[List[str]] = None
+    size: Optional[int] = None
+    sourceFolder: str
+    sourceFolderHost: Optional[str] = None
+    techniques: Optional[List[dict]] = None  # with {'pid':pid, 'name': name} as entries
+    type: DatasetType
+    validationStatus: Optional[str] = None
+    version: Optional[str] = None
+    scientificMetadata: Optional[Dict] = None
+
+
+
+
+
+class Diagnostic(pydantic.BaseModel ):
+    diagnosticName : str
+    diagnosticType : str
+    port : dict = {}
+    diagnostic : dict = {}
+
+class Proposal(Ownable):
+    """
+    Defines the purpose of an experiment
+    """
+
+    proposalId : str
+    pi_email : Optional[str] = None
+    pi_firstname : Optional[str] = None
+    pi_lastname : Optional[str] = None
+    email : str
+    firstname : Optional[str] = None
+    lastname : Optional[str] = None
+    title : Optional[str] 
+    abstract : Optional[str] = None
+    startTime : Optional[str] = None
+    endTime : Optional[str] = None
+    MeasurementPeriodList : Optional[ List[dict] ] = None
+
+class Sample(Ownable):
+    """
+    Models describing the characteristics of the samples to be investigated.
+    Raw datasets should be linked to such sample definitions.
+    """
+
+    sampleId: Optional[str] = None
+    owner: Optional[str] = None
+    description: Optional[str] = None
+    sampleCharacteristics: Optional[dict] = None
+    isPublished: bool = False
+class Instrument(pydantic.BaseModel):
+
+    pid: Optional[str] = None
+    name : str
+    uniqueName : Optional[str] 
+    customMetadata : Optional[Dict]=None
+
+
+class RawDataset(Dataset):
+    """
+    Raw datasets from which derived datasets are... derived.
+    """
+
+    principalInvestigator: Optional[str] = None
+    creationLocation: Optional[str] = None
+    type: DatasetType = DatasetType.raw
+    dataFormat: Optional[str] = None
+    endTime: Optional[str] = None  # datetime
+    sampleId: Optional[str] = None
+    proposalId: Optional[str] = None
+
+class DerivedDataset(Dataset):
+    """
+    Derived datasets which have been generated based on one or more raw datasets
+    """
+    investigator: str
+    inputDatasets: List[str]
+    usedSoftware: List[str]
+    jobParameters: Optional[dict] = None
+    jobLogData: Optional[str] = None
+    type: DatasetType = DatasetType.derived
 
 
 
@@ -447,7 +579,7 @@ def index():
 def __user_get_route(name):
 
     DB = get_db()
-    db = DB.conn[ USER_DBNAME]
+    db = DB.conn[ DBNAME]
     u_collection = db['users']
 
     u = DB.userinfo_get( name )
@@ -515,7 +647,7 @@ def schemas_find():
     except:
         db_filter = None
 
-    db = DB.conn[ USER_DBNAME ]
+    db = DB.conn[ DBNAME ]
     collection = db.schemas
      
     try:
@@ -565,7 +697,8 @@ async def schema_route_get(name):
         logger.error('schema_route_get EXCEPTION', e)
 
     if schema is None:
-        return  {'error' : 'schema "%s" does not exist' % schema_name} 
+        raise HTTPException( status_code=420, detail='schema "%s" does not exist' % schema_name )
+        #return  {'error' : 'schema "%s" does not exist' % schema_name} 
 
     return schema 
 
@@ -586,14 +719,15 @@ def __schema_route_delete(name):
     return flask.jsonify( j )
 
 
+
+
 #See https://python-jsonschema.readthedocs.io/en/latest/referencing/
 from pydantic import BaseModel, Extra, RootModel
 class Data( RootModel[Dict[str, Any]] ): ...
 
 
 @app.post("/api/v1/datasets", dependencies=[Depends(valid_access_token)])
-#async def create_dataset( schema : str, request : Request ):
-async def create_dataset( schema : str, ds_data : Data ):
+async def create_dataset( schema : str, ds_data : RawDataset ):
 
     DB = get_db()
     #data = await request.json()
@@ -614,7 +748,8 @@ async def create_dataset( schema : str, ds_data : Data ):
             print('EXCEPTION', e)
 
         if schema is None:
-            return {'error' : 'schema "%s" does not exist' % schema_name} 
+            raise HTTPException( status_code=422
+                                , detail= 'schema "%s" does not exist' % schema_name)
 
         #does data match this schema
         Draft202012Validator.check_schema( schema )
@@ -622,35 +757,52 @@ async def create_dataset( schema : str, ds_data : Data ):
         res = validator.validate(data)
 
     except jsonschema.SchemaError as se:
-        #print(se)
-        print(se)
-        ex = {}
-        ex['error'] = 'schema "%s" is not a valid schema' % schema_name
-        ex['detail'] = str(se)
-        return ex 
+        detail = {}
+        detail['error'] = 'schema "%s" is not a valid schema' % schema_name
+        detail['detail'] = str(se)
+
+        raise HTTPException( status_code=422, detail = detail )
     
     except jsonschema.ValidationError as ve:
-        return {'error' : 'data does not match schema "%s"' % schema_name} 
+        raise HTTPException(status_code=422
+                , detail = {'error':'data does not match schema "%s"' % schema_name})
+    except HTTPException as ex:
+        raise ex
     except Exception as e:
         print('QQQ', type(e), e )
     else:
 
-        scicat_user=SCICAT_INGESTOR_USER
-        scicat_password=SCICAT_INGESTOR_PASSWORD
+        try:
+            scicat_user=SCICAT_INGESTOR_USER
+            scicat_password=SCICAT_INGESTOR_PASSWORD
 
-        ds = pyscicat.model.RawDataset( **data )
+            ds = pyscicat.model.RawDataset( **data )
         
-        scicat_host = '%s/api/v3' % SCICAT_HOST
+            scicat_host = '%s/api/v3' % SCICAT_HOST
 
-        scicat = pyscicat.client.ScicatClient( base_url=scicat_host
+            scicat = pyscicat.client.ScicatClient( base_url=scicat_host
                                        , username=scicat_user
                                        , password=scicat_password )
 
-        ds_res = scicat.upload_new_dataset( ds )
-        pid = ds_res['id']
+            ds_res = scicat.upload_new_dataset( ds )
+            pid = ds_res['id']
 
-        return {'pid' : pid}#, 200
-        #return {'pid' : ds_id}#, 200
+            return {'pid' : pid}#, 200
+        except pydantic.ValidationError as ex:
+
+            errors = [ {'loc':x['loc'],'type':x['type'], 'msg':x['msg']} for x in ex.errors()]
+            detail={}
+            detail['error'] = 'validation error'
+            detail['detail'] = errors
+            raise HTTPException(status_code=420, detail = detail)
+
+
+            #return {'error' : 'Bad model', 'detail' : errors}, 422
+
+        except Exception as e:
+            print(type(e))
+            print('EXCEPTION', e)
+            raise e
 
 @app.get("/api/v1/datasets/{prefix}/{pid}", dependencies=[Depends(valid_access_token)])
 async def dataset_get( prefix : str , pid : str ):
@@ -700,14 +852,14 @@ async def datasets_find( filter : str ):
 
         return ds
     except pyscicat.client.ScicatCommError as e:
-        #print('SCICATCOMERROR')
-        #print(e.message)
         s = e.message
         s = s[ 1+s.find(':'):].strip()
 
         s = ast.literal_eval(s)
+        detail={'error' : s, 'detail' : '' }
+        raise HTTPException( status_code=420, detail = detail)
 
-        return s
+        #return s
 
 @app.get("/protected", dependencies=[Depends(valid_access_token)])
 async def protected_route( token :Annotated[ dict, Depends(valid_access_token)]  ):
@@ -720,7 +872,7 @@ async def protected_route( token :Annotated[ dict, Depends(valid_access_token)] 
 
 
 
-#sciact does npt seem to get many instrumenhts
+
 @app.get("/api/v1/instruments", dependencies=[Depends(valid_access_token)])
 async def instruments_find( filter=None  ):
     #the filter may need adjusting to meet scicat schema requirements
@@ -792,8 +944,36 @@ async def instruments_get( pid : str ):
     return ds 
 
 
+def diagnostic_2_instrument( d ):
+    metaData = {'diagnostic' : d}
+    
+    scicat = {}
+    scicat['name'] = d['diagnosticName']
+    scicat['uniqueName'] = d.get('uniqueName', str(uuid.uuid4())   )
+    scicat['customMetadata'] = metaData
+
+    return scicat
+
+def instrument_2_diagnostic( instr ):
+
+    try:
+        i_md = instr['customMetadata']
+
+        diagnostic = i_md['diagnostic']
+
+        return diagnostic 
+
+    except:
+        pass
+
+
+
+
+
+
+
 @app.post("/api/v1/instruments", dependencies=[Depends(valid_access_token)])
-async def instruments_put( schema : str, instr : Data  ):
+async def instruments_put( schema : str, instr : Instrument  ):
 
     DB = get_db()
     #data = await request.json()
@@ -831,20 +1011,36 @@ async def instruments_put( schema : str, instr : Data  ):
         print('QQQ', type(e), e )
     else:
 
+
+
+        #convert the ukaea diagnostic to a scicat instrument
+
+
         scicat_user=SCICAT_INGESTOR_USER
         scicat_password=SCICAT_INGESTOR_PASSWORD
 
-        instr = pyscicat.model.Instrument( **data )
+        try:
+            instr = pyscicat.model.Instrument( **data )
 
-        scicat_host = '%s/api/v3' % SCICAT_HOST
+            scicat_host = '%s/api/v3' % SCICAT_HOST
 
-        scicat = pyscicat.client.ScicatClient( base_url=scicat_host
-                                       , username=scicat_user
-                                       , password=scicat_password )
+            scicat = pyscicat.client.ScicatClient( base_url=scicat_host
+                                           , username=scicat_user
+                                           , password=scicat_password )
 
-        instr_res = scicat.instruments_create( instr )
+            instr_res = scicat.instruments_create( instr )
 
-        return {'pid' : instr_res['pid']}#, 200
+
+            return {'pid' : instr_res['pid']}#, 200
+        except pydantic.ValidationError as ex:
+
+            errors = [ {'loc':x['loc'],'type':x['type'], 'msg':x['msg']} for x in ex.errors()]
+            raise HTTPException(status_code=420, detail = errors)
+
+
+
+        except Exception as ex:
+            print(ex)
 
 
     return
@@ -910,19 +1106,27 @@ async def proposals_put( schema : str, instr : Data  ):
         print('QQQ', type(e), e )
     else:
 
-        scicat_user=SCICAT_INGESTOR_USER
-        scicat_password=SCICAT_INGESTOR_PASSWORD
+        try:
+            scicat_user=SCICAT_INGESTOR_USER
+            scicat_password=SCICAT_INGESTOR_PASSWORD
 
-        proposal = pyscicat.model.Proposal( **data )
-        scicat_host = '%s/api/v3' % SCICAT_HOST
+            proposal = pyscicat.model.Proposal( **data )
+            scicat_host = '%s/api/v3' % SCICAT_HOST
 
-        scicat = pyscicat.client.ScicatClient( base_url=scicat_host
-                                       , username=scicat_user
-                                       , password=scicat_password )
+            scicat = pyscicat.client.ScicatClient( base_url=scicat_host
+                                           , username=scicat_user
+                                           , password=scicat_password )
 
-        create_res = scicat.proposals_create( proposal )
+            create_res = scicat.proposals_create( proposal )
 
-        return {'pid' : create_res['proposalId']}#, 200
+            return {'pid' : create_res['proposalId']}#, 200
+
+        except pydantic.ValidationError as ex:
+
+            errors = [ {'loc':x['loc'],'type':x['type'], 'msg':x['msg']} for x in ex.errors()]
+            raise HTTPException(status_code=420, detail = errors)
+
+
 
 
     return
@@ -972,7 +1176,7 @@ async def samples_get( pid : str ):
 
 
 @app.post("/api/v1/samples", dependencies=[Depends(valid_access_token)])
-async def samples_put( schema : str, instr : Data  ):
+async def samples_put( schema : str, instr : Sample  ):
 
     DB = get_db()
     data = instr.model_dump()
@@ -1008,22 +1212,33 @@ async def samples_put( schema : str, instr : Data  ):
         print('QQQ', type(e), e )
     else:
 
-        scicat_user=SCICAT_INGESTOR_USER
-        scicat_password=SCICAT_INGESTOR_PASSWORD
+        try:
+            scicat_user=SCICAT_INGESTOR_USER
+            scicat_password=SCICAT_INGESTOR_PASSWORD
 
-        ds = pyscicat.model.Sample( **data )
-        scicat_host = '%s/api/v3' % SCICAT_HOST
+            ds = pyscicat.model.Sample( **data )
+            scicat_host = '%s/api/v3' % SCICAT_HOST
 
-        scicat = ScicatClientEx( base_url=scicat_host
-                                , username=scicat_user
-                                , password=scicat_password )
+            scicat = ScicatClientEx( base_url=scicat_host
+                                    , username=scicat_user
+                                    , password=scicat_password )
 
-        ds_id = scicat.samples_create( ds )
+            ds_id = scicat.samples_create( ds )
 
-        return {'pid' : ds_id}#, 200
+            return {'pid' : ds_id}#, 200
+        
+        except pydantic.ValidationError as ex:
+
+            errors = [ {'loc':x['loc'],'type':x['type'], 'msg':x['msg']} for x in ex.errors()]
+            raise HTTPException(status_code=420, detail = errors)
+        except Exception as e:
+            print('XXXXXXX', e )
+            raise HTTPException( status_code=403, detail='Connection refused')
+            print(type(e))
+            raise e
 
 
-    return
+
 
 
 
@@ -1047,10 +1262,161 @@ async def samples_find( filter=None  ):
 
     return res
 
+@app.post("/api/v1/diagnostics", dependencies=[Depends(valid_access_token)])
+async def diagnostics_put( schema : str, instr : Diagnostic  ):
+
+    DB = get_db()
+    #data = await request.json()
+    data = instr.model_dump()
+
+    #return
+    try:
+        schema_name = schema
+        schema = None
+
+        try:
+            retrieved = registry.get_or_retrieve( schema_name )
+
+            resource = retrieved.value
+
+            schema = resource.contents
+            
+        except Exception as e:
+            print('EXCEPTION', e)
+
+        if schema is None:
+            return {'error' : 'schema "%s" does not exist' % schema_name} 
+
+        #does data match this schema
+        Draft202012Validator.check_schema( schema )
+        validator = Draft202012Validator( schema, registry=registry )
+        res = validator.validate(data)
+
+    except jsonschema.SchemaError as se:
+        #print(se)
+        return {'error' : 'schema "%s" is not a valid schema' % schema_name} 
+    except jsonschema.ValidationError as ve:
+        return {'error' : 'data does not match schema "%s"' % schema_name} 
+    except Exception as e:
+        print('QQQ', type(e), e )
+    else:
+
+        #convert the ukaea diagnostic to a scicat instrument
+        diagnostic = Diagnostic( **data )
+
+        instr_data = diagnostic_2_instrument( data )
+
+
+        scicat_user=SCICAT_INGESTOR_USER
+        scicat_password=SCICAT_INGESTOR_PASSWORD
+
+        instr = pyscicat.model.Instrument( **instr_data )
+
+        scicat_host = '%s/api/v3' % SCICAT_HOST
+
+        r = requests.get( SCICAT_HOST )
+
+        scicat = pyscicat.client.ScicatClient( base_url=scicat_host
+                                       , username=scicat_user
+                                       , password=scicat_password )
+
+        instr_res = scicat.instruments_create( instr )
+
+        return {'pid' : instr_res['pid']}#, 200
+
+
+    return
+
+@app.get("/api/v1/diagnostics/{pid}", dependencies=[Depends(valid_access_token)])
+async def diagnostics_get( pid : str ):
+
+    metadata_pid = urllib.parse.unquote_plus( pid )
+
+    pid_ = metadata_pid
+
+    scicat_user=SCICAT_INGESTOR_USER
+    scicat_password=SCICAT_INGESTOR_PASSWORD
+
+    scicat_host = '%s/api/v3' % SCICAT_HOST
+
+    scicat = pyscicat.client.ScicatClient( base_url=scicat_host
+                                   , username=scicat_user
+                                   , password=scicat_password )
+
+    instr = scicat.instruments_get_one( pid_  )
+
+    diag = instrument_2_diagnostic( instr )
+
+    return diag 
+def transform_query(query):
+    custom_query = {}
+    for key, value in query.items():
+        if isinstance(value, dict) and any(k.startswith('$') for k in value.keys()):
+            # If value is a dict containing MongoDB operators (e.g., $gt, $lt)
+            custom_query[f"custom.{key}"] = value
+        else:
+            # Simple key-value pairs (e.g., "name": "John")
+            custom_query[f"custom.{key}"] = value
+    return custom_query
+
+@app.get("/api/v1/diagnostics", dependencies=[Depends(valid_access_token)])
+async def diagnostics_find( filter=None  ):
+    #the filter may need adjusting to meet scicat schema requirements
+    #try:
+    #    scicat_filter = json.loads( filter )
+    #except:
+    #    scicat_filter = None
+
+    #the filter may need adjusting to meet scicat schema requirements
+    filter_fields = filter
+
+    filter_fields = {} if filter_fields is None else filter_fields
+    filter_fields = json.loads( filter_fields )
+
+    scicat_filter = {}
+
+    where_ = {}
+    try:
+        where = filter_fields['where']
+
+        for k,v in where.items():
+            where_ [ f'customMetadata.diagnostic.{k}'] = v
+
+        scicat_filter['where'] = where_
+        #q2 = transform_query( filter_fields['where'])
+
+    except:
+        pass
+
+    scicat_user=SCICAT_INGESTOR_USER
+    scicat_password=SCICAT_INGESTOR_PASSWORD
+
+    scicat_host = '%s/api/v3' % SCICAT_HOST
+
+    scicat = ScicatClientEx( base_url=scicat_host
+                            , username=scicat_user
+                            , password=scicat_password )
+    
+    res = scicat.instruments_find( scicat_filter )
+
+    diags = [ instrument_2_diagnostic(instr) for instr in res ]
+
+    return diags
 
 
 
 
+
+
+
+origins=["http://scicat-test.apps.l:3000"]
+
+app.add_middleware( 
+        CORSMiddleware, 
+        allow_origins=origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"])
     
 if __name__ =='__main__':
     app.run()

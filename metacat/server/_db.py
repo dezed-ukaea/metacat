@@ -3,20 +3,22 @@ import os
 from pymongo import MongoClient
 #MONGODB_HOST=os.getenv( "MONGODB_HOST", default='mongodb')
 
-USER_DBNAME='users'
+DBNAME='metacat'
+
 class DBConn:
 
-    def __init__(self, host):
-        con_string = 'mongodb://%s' % host
+    def __init__(self, host, port):
+        #con_string = 'mongodb://%s' % host
 
-        self.conn = MongoClient( con_string )
+        #self.conn = MongoClient( con_string )
+        self.conn = MongoClient( host, port )
 
-        user_db = self.conn[ USER_DBNAME ]
+        user_db = self.conn[ DBNAME ]
 
         schema_collection = user_db['schemas']
 
     def schemainfo_get( self, name ):
-        db = self.conn[ USER_DBNAME ]
+        db = self.conn[ DBNAME ]
         collection = db['schemas']
         o = collection.find_one( {'name':name} )
 
@@ -24,7 +26,7 @@ class DBConn:
 
     def schemainfo_add( self, name, schema, users=None, groups=None ):
 
-        db = self.conn[ USER_DBNAME ]
+        db = self.conn[ DBNAME ]
 
         users=[]
         groups=[]
@@ -50,7 +52,7 @@ class DBConn:
 
     def schemainfo_update( self, name, schema=None, users=None, groups=None ):
 
-        db = self.conn[ USER_DBNAME ]
+        db = self.conn[ DBNAME ]
 
         collection = db['schemas']
 
@@ -97,7 +99,7 @@ class DBConn:
 
     def schemainfo_delete( self, name, schema=None, users=None, groups=None ):
 
-        db = self.conn[ USER_DBNAME ]
+        db = self.conn[ DBNAME ]
 
         collection = db['schemas']
 
